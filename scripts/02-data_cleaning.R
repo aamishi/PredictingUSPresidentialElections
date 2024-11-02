@@ -7,36 +7,60 @@
 
 #### Workspace setup ####
 library(tidyverse)
+library(janitor)
+library(haven)
+library(arrow)
+library(dplyr)
 
 #### Clean data ####
-raw_data <- read_csv("inputs/data/plane_data.csv")
+raw_data <- read_csv("data/raw_data/president_polls.csv")
 
-cleaned_data <-
-  raw_data |>
-  janitor::clean_names() |>
-  select(wing_width_mm, wing_length_mm, flying_time_sec_first_timer) |>
-  filter(wing_width_mm != "caw") |>
+raw_data_tibble <- head(raw_data)
+vars_interest <- raw_data %>% select(-display_name, -sponsors, -pollster_rating_name,
+                                     -endorsed_candidate_id, -endorsed_candidate_name, 
+                                     -endorsed_candidate_party, -subpopulation, -url,
+                                     -url_article, -url_topline, -url_crosstab,
+                                     -sponsor_candidate_id, -sponsor_candidate, -sponsor_candidate_party, 
+                                     -tracking, -created_at, -notes, -source,
+                                     -internal, -partisan, -cycle, -stage, -race_id, -office_type, -seat_name,
+                                     -seat_number, -election_date, -nationwide_batch, -ranked_choice_reallocated,
+                                     -ranked_choice_round, -sponsor_ids)
+
+# filtering the data and selecting variables of interest:
+# clean data is for all parties and candidates
+clean_data <- vars_interest |>
+  clean_names() |>
+  filter(numeric_grade >= 3.0) |>
   mutate(
-    flying_time_sec_first_timer = if_else(flying_time_sec_first_timer == "1,35",
-                                   "1.35",
-                                   flying_time_sec_first_timer)
-  ) |>
-  mutate(wing_width_mm = if_else(wing_width_mm == "490",
-                                 "49",
-                                 wing_width_mm)) |>
-  mutate(wing_width_mm = if_else(wing_width_mm == "6",
-                                 "60",
-                                 wing_width_mm)) |>
-  mutate(
-    wing_width_mm = as.numeric(wing_width_mm),
-    wing_length_mm = as.numeric(wing_length_mm),
-    flying_time_sec_first_timer = as.numeric(flying_time_sec_first_timer)
-  ) |>
-  rename(flying_time = flying_time_sec_first_timer,
-         width = wing_width_mm,
-         length = wing_length_mm
-         ) |> 
-  tidyr::drop_na()
+    state = if_else(is.na(state), "National", state), # poll is conducted for the whole country
+    ) |>
+  na.omit()
+
+# blue - democrat - kamala harris
+kh_data <- clean_data |>
+  filter(party=="DEM" , candidate_id=="16661") |>
+  mutate(kh_win = ifelse(party == "DEM", 
+                1, 
+                0))
+
+# red - republican - donald trump
+dt_data <- clean_data |>
+  filter(party=="REP" , candidate_id=="16651")
+
+president_data <- table(raw_data$pollster)
+president_data <- as.data.frame(president_data)
+print(president_data)
+
+# top 10 pollsters
+president_data <- president_data[order(-president_data$Freq), ]
+
+# Get the top 10 most frequent pollsters
+top_10_pollsters <- head(president_data, 10)
+
+# Display the result
+top_10_pollsters
 
 #### Save data ####
-write_csv(cleaned_data, "outputs/data/analysis_data.csv")
+write_parquet(raw_data, "data/analysis_data/president_polls.parquet")
+write_parquet(kh_data, "data/analysis_data/kh_data.parquet")
+write_parquet(dt_data, "data/analysis_data/dt_data.parquet")
