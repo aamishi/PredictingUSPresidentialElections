@@ -1,8 +1,10 @@
 ---
-title: "Where are Torontonians likely to get married"
-subtitle: "Analysing the different marriage offices around GTA"
+title: "Predicting US Presidential Elections"
+subtitle: "Analysing Electoral Polls to Model Forecast the Winner of the Upcoming US Presidential Election"
 author: 
   - Aamishi Avarsekar
+  - Gauravpreet Thind
+  - Divya Gupta
 thanks: "Code and data are available at: https://github.com/aamishi/marriages_weekly_reflection/tree/master"
 date: today
 date-format: long

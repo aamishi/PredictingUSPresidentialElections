@@ -2,8 +2,7 @@
 
 ## Overview
 
-This repo provides students with a foundation for their own projects associated with *Telling Stories with Data*. You do not need every aspect for every paper and you should delete aspects that you do not need.
-
+This project aims to analyse current polling data from the 2024 US Presidential Elections and develop a model for predicting the final result. 
 
 ## File Structure
 
