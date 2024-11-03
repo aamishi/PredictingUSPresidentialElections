@@ -13,6 +13,7 @@ library(tidyverse)
 library(rstanarm)
 library(arrow)
 library(modelsummary)
+library(splines)
 set.seed(304)
 
 #### Read data ####
@@ -22,7 +23,7 @@ dt_data <- read_parquet("data/analysis_data/dt_data.parquet")
 ### Model data ####
 kh_model <-
   stan_glm(
-    formula = kh_win ~ pollscore,
+    formula = kh_win ~ pct + pollscore + transparency_score + state + population ,
     data = kh_data,
     family = binomial(link="logit")
   )
@@ -30,6 +31,6 @@ kh_model <-
 
 #### Save Model ####
 
-saveRDS(kh_vote_model, file = "models/kh_vote_model.rds")
+saveRDS(kh_model, file = "models/kh_vote_model.rds")
 
-modelsummary(kh_vote_model)
+modelsummary(kh_model)

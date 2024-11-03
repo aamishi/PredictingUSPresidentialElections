@@ -30,15 +30,15 @@ vars_interest <- raw_data %>% select(-display_name, -sponsors, -pollster_rating_
 # clean data is for all parties and candidates
 clean_data <- vars_interest |>
   clean_names() |>
-  filter(numeric_grade >= 3.0) |>
   mutate(
     state = if_else(is.na(state), "National", state), # poll is conducted for the whole country
+    end_date = mdy(end_date)
     ) |>
   na.omit()
 
 # blue - democrat - kamala harris
 kh_data <- clean_data |>
-  filter(party=="DEM" , candidate_id=="16661") |>
+  filter(party=="DEM") |>
   mutate(kh_win = ifelse(party == "DEM", 
                 1, 
                 0))
