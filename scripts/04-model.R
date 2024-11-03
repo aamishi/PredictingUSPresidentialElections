@@ -14,6 +14,7 @@ library(rstanarm)
 library(arrow)
 library(modelsummary)
 library(splines)
+library(loo)
 set.seed(304)
 
 #### Read data ####
@@ -22,15 +23,41 @@ dt_data <- read_parquet("data/analysis_data/dt_data.parquet")
 
 ### Model data ####
 kh_model <-
-  stan_glm(
-    formula = kh_win ~ pct + pollscore + transparency_score + state + population ,
-    data = kh_data,
-    family = binomial(link="logit")
-  )
+  stan_glm(pct ~ pollster + pollscore + transparency_score + ns(end_days, df = 3) + state,
+            data = kh_data,
+            family = gaussian(),
+            prior = normal(0, 1),
+            prior_intercept = normal(0, 10),
+            chains = 4,
+            iter = 2000,
+            weights = kh_data$combined_weight)
 
 
 #### Save Model ####
 
 saveRDS(kh_model, file = "models/kh_vote_model.rds")
+pp_check(kh_model)
+model_sum <- modelsummary(kh_model)
+model_sum
 
-modelsummary(kh_model)
+posterior_vs_prior(kh_model) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  coord_flip()
+
+plot(
+  kh_model,
+  "areas"
+)
+
+
+plot(kh_model, "trace")
+
+plot(kh_model, "rhat")
+
+
+predictions <- predict(kh_model)
+rmse <- sqrt(mean((kh_data$pct - predictions)^2))
+
+
+
