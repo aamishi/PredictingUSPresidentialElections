@@ -5,10 +5,9 @@ author:
   - Aamishi Avarsekar
   - Gauravpreet Thind
   - Divya Gupta
-thanks: "Code and data are available at: https://github.com/aamishi/marriages_weekly_reflection/tree/master"
+thanks: "Code and data are available at: https://github.com/aamishi/PredictingUSPresidentialElections"
 date: today
 date-format: long
-abstract: "First sentence. Second sentence. Third sentence. Fourth sentence."
 format: pdf
 toc: true
 number-sections: true
@@ -87,6 +86,9 @@ ggplot(state_summary, aes(x = reorder(state, avg_pollscore), y = avg_pollscore, 
 ### Outcome Variable
 The outcome variable that we decided to focus on is `pct`, which is the proportion of support that a major candidate is projected to receive through that poll. This proportion accounts for the candidate’s support against all other candidates. We use this variable to estimate which candidate is likely to win based on popular vote.
 ```{r}
+#| include: false
+#| warning: false
+#| message: false
 # Filter data from July 21, 2024, until today
 filtered_data <- kh_data %>%
   filter(end_date >= as.Date("2024-07-21") & end_date <= Sys.Date())
