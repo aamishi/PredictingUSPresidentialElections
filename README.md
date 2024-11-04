@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project aims to analyse current polling data from the 2024 US Presidential Elections and develop a model for predicting the final result. 
+This research aims to develop a generalized linear model to predict the outcome of the 2024 U.S. Presidential Election. The model aggregates polling data from various sources via the poll-of-polls method to provide a forecast of voter behavior regarding Kamala Harris, the Democratic Candidate, and Donald Trump, the Republican Candidate. This paper presents our exploratory data analysis (EDA) to clean and prepare the dataset followed by the predictive model and its results, which project a Kamala Harris win. The paper further presents an idolized survey to test these findings and discusses the methodology to run it using a USD $100K budget. 
 
 ## File Structure
 
