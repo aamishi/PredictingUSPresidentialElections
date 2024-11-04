@@ -10,6 +10,7 @@ date: today
 date-format: long
 abstract: "First sentence. Second sentence. Third sentence. Fourth sentence."
 format: pdf
+toc: true
 number-sections: true
 bibliography: references.bib
 ---
@@ -20,196 +21,145 @@ bibliography: references.bib
 #| message: false
 
 library(tidyverse)
-library(palmerpenguins)
+library(rstanarm)
+library(arrow)
+library(modelsummary)
+library(splines)
+library(loo)
+set.seed(304)
+kh_data <- read_parquet("../data/analysis_data/kh_data.parquet")
+dt_data <- read_parquet("../data/analysis_data/dt_data.parquet")
 ```
 
 
 # Introduction
 
-In this week's reflection exercise, I will take a look at where people from GTA are most likely to register their marriage. I will be using @citeR to simulate, test and analyse this data. I will download the data from @opendatatoronto.
+# Data
 
+## Data Overview
+The data that we are working with for this paper has been obtained from 385(@cite385), using the Presidential General Election Polls (Current Cycle) data. The website also contains the data for the previous US Presidential Election from 2020 and Polling averages for predicting the next President. The website does not offer an API so the data must be downloaded manually and is available in .csv format. We have employed the dplyr package (@dplyr) to select the variables of our interest by omitting unused unnecessary variables. We used the janitor package (@janitor) to clean all variable names for uniformity. For the creation of new variables or the mutation of existing variables, we used @lubridate package’s mdy() function. The csv data was converted to a dataframe in and subsequently converted back to a parquet file using @arrow for ease of use.
 
+The original data set provides 52 variables that reflect the data that each pollster has collected. These include each pollstor’s sponsor, their respective identification numbers, the duration of the poll, the methodology used, the percentage of support received by each leading candidate, and numerics that evaluate the reliability and strength of the poll. 385 determines “major” candidates against a matrix of evaluation and aggregates the polls that focus on these candidates [@abcnews2024polls].
 
-# Data {#sec-mydatasection}
+The website uses a poll-of-polls method to calculate the support for a major candidate. Using this method increase reliability by reducing the effect of individual bias for each pollster and noise across the data.
 
-Some of our data is of penguins (@fig-marriage), from @palmerpenguins.
 
 ```{r}
-#| label: fig-marriage
-#| fig-cap: Bills of penguins
-#| echo: false
-
-data |> 
-  ggplot(aes(x = date, y = marriage_licenses)) +
-  geom_point()
-
-```
-
-Talk more about it.
-
-And also planes (@fig-planes). (You can change the height and width, but don't worry about doing that until you have finished every other aspect of the paper - Quarto will try to make it look nice and the defaults usually work well once you have enough text.)
-
-```{r}
-#| label: fig-planes
-#| fig-cap: Relationship between wing length and width
+#| message: false
 #| echo: false
 #| warning: false
-#| message: false
+state_summary <- kh_data %>%
+  group_by(state) %>%
+  summarize(
+    avg_pollscore = mean(pollscore, na.rm = TRUE),
+    avg_numeric_grade = mean(numeric_grade, na.rm = TRUE)
+  )
 
-analysis_data <- read_csv(here::here("data/analysis_data/analysis_data.csv"))
-
-analysis_data |> 
-  ggplot(aes(x = width, y = length)) +
-  geom_point(alpha = 0.8) +
+ggplot(state_summary, aes(x = reorder(state, avg_pollscore), y = avg_pollscore, fill = state)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the coordinates for better readability
+  labs(title = "Average Pollscore by State",
+       x = "State",
+       y = "Average Pollscore") +
   theme_minimal() +
-  labs(x = "Wing width (mm)",
-       y = "Wing length (mm)")
+  theme(legend.position = "none")
+
+
+```
+## Variables
+
+### Outcome Variable
+The outcome variable that we decided to focus on is `pct`, which is the proportion of support that a major candidate is projected to receive through that poll. This proportion accounts for the candidate’s support against all other candidates. We use this variable to estimate which candidate is likely to win based on popular vote.
+```{r}
+# Filter data from July 21, 2024, until today
+filtered_data <- kh_data %>%
+  filter(end_date >= as.Date("2024-07-21") & end_date <= Sys.Date())
+
+cutoff_days <- max(kh_data$end_days) - 120
+
+# Filter the data to include only the past 4 months
+filtered_data <- kh_data %>%
+  filter(end_days >= cutoff_days, state=="National")
+
+# Plot with the filtered data
+
+ggplot(filtered_data, aes(x = end_date, y = pct, color = state)) +
+  geom_point(alpha = 0.4) +  # Add points for reference
+  geom_smooth(method = "loess", span = 0.3, se = FALSE) +  # Adjust span for more or less smoothing
+  labs(title = "Smoothed Pollscore from July 21, 2024, to Present",
+       x = "Date",
+       y = "Pollscore") +
+  theme_minimal()
 ```
 
-Talk way more about it. 
+### Predictor Variables
+Our predictor variables are as follows:
 
+- **pollster**: The pollster conducting the poll. Each pollster also had an associated sponsor candidate, but this occurrence was rare, so we chose to omit it.
+  
+- **pollscore**: The score assigned to the reliability of the respective pollster. It includes error and bias that can arise within each pollster’s methodology; hence, negative numbers are better. The original website describes it as “Predictive Optimization of Latent skill Level in Surveys, Considering Overall Record, Empirically.” `pollscore` is used to assign weight, as we will see later in the model section.
 
+- **transparency_score**: A numerical value, graded on a scale of 1 to 10, that indicates how transparent a pollster is based on the amount of information they disclose and how recent their polls are.
+
+- **end_days**: The number of days that each poll was conducted until November 3rd. This number was generated using `start_date` and `end_date`, and it is used as the spline term for our model with 3 degrees of freedom. This variable is used to assign greater weight, as we will see in the model section.
+
+- **state**: The United States state where the poll was conducted. This variable has been modified to include a “national” category if the poll was not specific to any particular state.
 
 # Model
 
-The goal of our modelling strategy is twofold. Firstly,...
+## Model Overview
 
-Here we briefly describe the Bayesian analysis model used to investigate... Background details and diagnostics are included in [Appendix -@sec-model-details].
+This model employs Bayesian analysis to fit the predictive model based on the current polling data. Spline functions have been used to fit the `end_days` variable, capturing the weight of more recent polls to reflect their potentially greater relevance in predicting support for Vice President Kamala Harris. The dependent variable, `pct`, represents the likelihood of Harris being elected as the next President of the USA, serving as the primary measure of voter support. 
 
-## Model set-up
+## Model Equation
+$$
+pct_i = \beta_0 + \beta_1 \cdot \text{pollscore}_i + \beta_2 \cdot \text{transparency\_score}_i + f(\text{end\_days}_i) + \beta_3 \cdot \text{state}_i + \epsilon_i
+$$
 
-Define $y_i$ as the number of seconds that the plane remained aloft. Then $\beta_i$ is the wing width and $\gamma_i$ is the wing length, both measured in millimeters.  
+### Where:
+- $pct_i$ = support for Kamala Harris in the \( i^{th} \) poll
+- $\beta_0$ = intercept (baseline support when all predictors are zero)
+- $\beta_1$ = coefficient for the pollster reliability score (`pollscore`)
+- $\beta_2$ = coefficient for the pollster transparency score (`transparency_score`)
+- $\text{end\_days}_i)$ = spline function capturing the non-linear effect of the recency of the poll (measured in days)
+- $\beta_3$ = coefficients for the categorical variable representing state (each state would have its own coefficient)
+- $\epsilon_i$ = error term (captures unexplained variance)
 
-\begin{align} 
-y_i|\mu_i, \sigma &\sim \mbox{Normal}(\mu_i, \sigma) \\
-\mu_i &= \alpha + \beta_i + \gamma_i\\
-\alpha &\sim \mbox{Normal}(0, 2.5) \\
-\beta &\sim \mbox{Normal}(0, 2.5) \\
-\gamma &\sim \mbox{Normal}(0, 2.5) \\
-\sigma &\sim \mbox{Exponential}(1)
-\end{align}
+## Predictor Variables
 
-We run the model in R [@citeR] using the `rstanarm` package of @rstanarm. We use the default priors from `rstanarm`.
+The predictor variables selected for this model include `pollscore`, `transparency_score`, and `state`, each chosen for their significance in understanding polling dynamics.
 
+### Pollscore
 
-### Model justification
+This variable reflects the reliability of the pollster, where lower scores indicate a more accurate historical performance. Including `pollscore` allows the model to account for biases and errors associated with different polling organizations, ensuring that more reputable polls are given greater weight in the analysis.
 
-We expect a positive relationship between the size of the wings and time spent aloft. In particular...
+### Transparency Score
 
-We can use maths by including latex between dollar signs, for instance $\theta$.
+The transparency score indicates how openly pollsters disclose their methodologies. This variable is critical because it helps assess the trustworthiness of the polls. A higher transparency score suggests a more reliable polling process, which can enhance the credibility of the results.
 
+### Spline for End Days
 
-# Results
+By incorporating a spline function for `end_days`, the model captures non-linear effects associated with the recency of the polls. This approach allows for a more nuanced understanding of how support for Harris changes over time, recognizing that more recent polls may reflect current voter sentiment more accurately.
 
-Our results are summarized in @tbl-modelresults.
+### State
 
-```{r}
-#| echo: false
-#| eval: true
-#| warning: false
-#| message: false
+Including state as a categorical variable helps account for regional differences in voter support. Each state may have unique demographic and political contexts that influence support for Harris, and capturing these variations is essential for improving the model's accuracy.
 
-library(rstanarm)
+## Model Priors
 
-first_model <-
-  readRDS(file = here::here("models/first_model.rds"))
-```
-
-```{r}
-#| echo: false
-#| eval: true
-#| label: tbl-modelresults
-#| tbl-cap: "Explanatory models of flight time based on wing width and wing length"
-#| warning: false
-
-modelsummary::modelsummary(
-  list(
-    "First model" = first_model
-  ),
-  statistic = "mad",
-  fmt = 2
-)
-```
+All variables in this model utilize default priors, with an additional weight applied to recent polls with higher `pollscore` values, emphasizing the importance of both reliability and recency in predicting electoral support for Kamala Harris.
 
 
+## Limitations
+This model predicts the likelihood of Vice President Kamala Harris winning the upcoming USA Presidential Elections in 2024. This model is a simple representation of Kamala Harris’s win or no-win. The model does not take into consideration that independent candidates could account for the lack of support for Harris but that does not accumulate into direct support for Trump. This model also only considers specific support for Harris. There is no exploration of the relationship between support for the Democrats and support for Harris. A state may have an overall Blue majority but not necessarily for Harris directly.
 
+This model assumes a linear relation for the scores provided for understanding the reliability of each poll. pollscore and transparency_score are a general guideline to assess the reliability of a poll but they are based on historical evaluations of each pollstor. Thus, biases may still exists regardless.
+This model also has a simplified weight distribution for recent polls and polls with higher pollscores and transparency_scores. For examples, any poll within the 6 month period sense writing this paper is weighted at 1 and any older polls are weighted to be 0. This does not capture the right sentiment associated with general people’s opinions as the election day nears.
 
-# Discussion
+This model also does not take into consideration swing states and only uses them as categorical variables. This was done by design at this risk of overfitting.
 
-## First discussion point {#sec-first-point}
-
-If my paper were 10 pages, then should be be at least 2.5 pages. The discussion is a chance to show off what you know and what you learnt from all this. 
-
-## Second discussion point
-
-## Third discussion point
-
-## Weaknesses and next steps
-
-Weaknesses and next steps should also be included.
-
-\newpage
-
-\appendix
-
-# Appendix {-}
-
-
-# Additional data details
-
-# Model details {#sec-model-details}
-
-## Posterior predictive check
-
-In @fig-ppcheckandposteriorvsprior-1 we implement a posterior predictive check. This shows...
-
-In @fig-ppcheckandposteriorvsprior-2 we compare the posterior with the prior. This shows... 
-
-```{r}
-#| eval: true
-#| echo: false
-#| message: false
-#| warning: false
-#| label: fig-ppcheckandposteriorvsprior
-#| layout-ncol: 2
-#| fig-cap: "Examining how the model fits, and is affected by, the data"
-#| fig-subcap: ["Posterior prediction check", "Comparing the posterior with the prior"]
-
-pp_check(first_model) +
-  theme_classic() +
-  theme(legend.position = "bottom")
-
-posterior_vs_prior(first_model) +
-  theme_minimal() +
-  scale_color_brewer(palette = "Set1") +
-  theme(legend.position = "bottom") +
-  coord_flip()
-```
-
-## Diagnostics
-
-@fig-stanareyouokay-1 is a trace plot. It shows... This suggests...
-
-@fig-stanareyouokay-2 is a Rhat plot. It shows... This suggests...
-
-```{r}
-#| echo: false
-#| eval: true
-#| message: false
-#| warning: false
-#| label: fig-stanareyouokay
-#| fig-cap: "Checking the convergence of the MCMC algorithm"
-#| fig-subcap: ["Trace plot", "Rhat plot"]
-#| layout-ncol: 2
-
-plot(first_model, "trace")
-
-plot(first_model, "rhat")
-```
-
-
-
-\newpage
+## Next steps
+Add a more educated method to assign weights to more reliable and more recent polls. For example, as Election Day nears, Trump has been focusing more on swing states like North Carolina [@aljazeera2024election] for his last set of campaign speeches. This could potentially weigh more than polls taken slightly earlier but still within the 6 month period.
 
 
 # References
