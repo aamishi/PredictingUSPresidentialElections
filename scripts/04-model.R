@@ -19,7 +19,6 @@ set.seed(304)
 
 #### Read data ####
 kh_data <- read_parquet("data/analysis_data/kh_data.parquet")
-dt_data <- read_parquet("data/analysis_data/dt_data.parquet")
 
 ### Model data ####
 kh_model <-
@@ -36,28 +35,3 @@ kh_model <-
 #### Save Model ####
 
 saveRDS(kh_model, file = "models/kh_vote_model.rds")
-pp_check(kh_model)
-model_sum <- modelsummary(kh_model)
-model_sum
-
-posterior_vs_prior(kh_model) +
-  theme_minimal() +
-  theme(legend.position = "bottom") +
-  coord_flip()
-
-plot(
-  kh_model,
-  "areas"
-)
-
-
-plot(kh_model, "trace")
-
-plot(kh_model, "rhat")
-
-
-predictions <- predict(kh_model)
-rmse <- sqrt(mean((kh_data$pct - predictions)^2))
-
-
-
